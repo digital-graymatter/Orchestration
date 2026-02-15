@@ -5,7 +5,7 @@ const briefingAgent = {
   id: 'brief',
   name: 'Briefing Agent',
   iconId: 'brief',
-  colour: '#0f766e',
+  colour: '#2563eb',
   nextAgent: 'strategy',
   short: 'Structures your input into an actionable creative brief',
   systemPrompt: `You are a senior B2B marketing strategist specialising in automotive fleet marketing for Toyota Professional.

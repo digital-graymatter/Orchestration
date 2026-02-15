@@ -5,7 +5,7 @@ const strategyAgent = {
   id: 'strategy',
   name: 'Strategy Agent',
   iconId: 'strategy',
-  colour: '#2563eb',
+  colour: '#d97706',
   nextAgent: 'copy',
   short: 'Generates evidence-led insights and strategic direction',
   systemPrompt: `You are a senior B2B marketing strategist specialising in automotive fleet marketing for Toyota Professional.

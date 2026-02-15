@@ -5,7 +5,7 @@ const copyAgent = {
   id: 'copy',
   name: 'Copy Agent',
   iconId: 'copy',
-  colour: '#d97706',
+  colour: '#7c3aed',
   nextAgent: 'compliance',
   short: 'Transforms strategic direction into on-brand copy',
   systemPrompt: `You are an expert B2B copywriter specialising in automotive fleet marketing for Toyota Professional.
