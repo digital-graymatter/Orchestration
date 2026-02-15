@@ -29,9 +29,32 @@ function detectPattern(text) {
   return null;
 }
 
+/* ── Track whether we're inside a Sources / References section ── */
+let inSourcesSection = false;
+
 export const agentMarkdownComponents = {
+  h2: ({ children, ...props }) => {
+    const text = getTextContent(children);
+    inSourcesSection = /^sources|^references/i.test(text.trim());
+    if (inSourcesSection) {
+      return (
+        <h2 {...props} style={{
+          fontSize: 13, fontWeight: 700, color: '#6b7280',
+          borderTop: '1px solid #e5e7eb', paddingTop: 16, marginTop: 24,
+          marginBottom: 8, letterSpacing: 0.3, textTransform: 'uppercase',
+        }}>
+          {children}
+        </h2>
+      );
+    }
+    return <h2 {...props}>{children}</h2>;
+  },
   h3: ({ children, ...props }) => {
     const text = getTextContent(children);
+    // A non-sources h3 exits the sources section
+    if (!/^sources|^references/i.test(text.trim())) {
+      inSourcesSection = false;
+    }
     const pattern = detectPattern(text);
     if (pattern) {
       const c = COLOUR_PATTERNS[pattern];
@@ -115,6 +138,30 @@ export const agentMarkdownComponents = {
       return <strong {...props} style={{ color: '#2563eb' }}>{children}</strong>;
     }
     return <strong {...props}>{children}</strong>;
+  },
+  ol: ({ children, ...props }) => {
+    if (inSourcesSection) {
+      return <ol {...props} style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.7, paddingLeft: 20, margin: '4px 0' }}>{children}</ol>;
+    }
+    return <ol {...props}>{children}</ol>;
+  },
+  ul: ({ children, ...props }) => {
+    if (inSourcesSection) {
+      return <ul {...props} style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.7, paddingLeft: 20, margin: '4px 0' }}>{children}</ul>;
+    }
+    return <ul {...props}>{children}</ul>;
+  },
+  li: ({ children, ...props }) => {
+    if (inSourcesSection) {
+      return <li {...props} style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{children}</li>;
+    }
+    return <li {...props}>{children}</li>;
+  },
+  a: ({ children, href, ...props }) => {
+    if (inSourcesSection) {
+      return <a href={href} target="_blank" rel="noopener noreferrer" {...props} style={{ color: '#2563eb', fontSize: 11, textDecoration: 'underline', wordBreak: 'break-all' }}>{children}</a>;
+    }
+    return <a href={href} target="_blank" rel="noopener noreferrer" {...props} style={{ color: '#2563eb', textDecoration: 'underline' }}>{children}</a>;
   },
 };
 

@@ -32,15 +32,21 @@ export function buildSystemPrompt(agentId, { nurtureFlowMode = false, channel = 
   const agent = AGENTS[agentId];
   if (!agent) return '';
 
+  // Research channel + Strategy agent → use dedicated research prompt
+  const isResearchMode = channel === 'Research' && agentId === 'strategy';
+  const basePrompt = (isResearchMode && agent.researchPrompt) ? agent.researchPrompt : agent.systemPrompt;
+
   // Start with orchestration framing so the model knows exactly which agent it is
+  const roleName = isResearchMode ? 'Research Analyst (Strategy Agent — Research Mode)' : agent.name;
   let sys = `[ORCHESTRATION CONTEXT]
-You are the ${agent.name}. You are operating inside a multi-agent marketing orchestration pipeline.
+You are the ${roleName}. You are operating inside a multi-agent marketing orchestration pipeline.
 Your role is to produce YOUR OWN specialist output — not to route, hand off, or activate other agents.
 Agent routing and handoff is handled by the orchestration layer, not by you.
 Do NOT mention routing, handoff, or other agents in your output. Focus entirely on producing your deliverable.
+${isResearchMode ? `You are in RESEARCH MODE. The user has selected the Research channel with runbook: "${runbook}". Produce a comprehensive, C-suite-grade research briefing — not a strategy summary. Follow your research output standards precisely.` : ''}
 [END ORCHESTRATION CONTEXT]
 
-${agent.systemPrompt}`;
+${basePrompt}`;
 
   // Copy agent: append nurture sub-agent instructions ONLY for CRM > Nurture Journeys
   const isNurtureContext = channel === 'CRM' && runbook === 'Nurture Journeys';

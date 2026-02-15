@@ -117,6 +117,14 @@ export default function App() {
   const handleChannelChange = (ch) => {
     setChannel(ch);
     setRunbook(DEFAULT_RUNBOOKS[ch]);
+    // Research → single-agent Strategy, Open mode; others → restore multi-agent
+    if (ch === 'Research') {
+      setExecutionMode('single');
+      setSingleAgent('strategy');
+      setDemoMode(false); // Research always runs Open (live API)
+    } else {
+      setExecutionMode('multi');
+    }
     resetWorkflow();
   };
 
