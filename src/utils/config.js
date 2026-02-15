@@ -4,7 +4,7 @@ export const CHANNELS = {
   Brand: { runbooks: ['Thought Leadership'] },
   CRM: { runbooks: ['Nurture Journeys'] },
   Digital: { runbooks: ['Website copy'] },
-  Research: { runbooks: ['Market & Audience', 'Competitor Analysis', 'Product & Technology', 'Sector Deep Dive'] },
+  Research: { runbooks: ['Market & Audience', 'Competitor Analysis', 'Product & Technology', 'Sector Deep Dive', 'Open Research'] },
 };
 
 export const DEFAULT_RUNBOOKS = {
@@ -32,11 +32,16 @@ export const DEMO_PROMPTS = {
   'Competitor Analysis': `Analyse the competitive landscape for commercial fleet electrification in the UK. Compare Toyota Professional's positioning against key competitors (Ford Pro, Stellantis Pro One, Mercedes-Benz Vans, Volkswagen Commercial Vehicles). Identify gaps, opportunities, and strategic differentiators.`,
   'Product & Technology': `Research the current state of Toyota's commercial vehicle electrification technology, including the multi-path approach (HEV, PHEV, BEV, FCEV). Cover WLTP ranges, charging infrastructure requirements, real-world fleet performance data, and the technology roadmap relevant to UK fleet operators.`,
   'Sector Deep Dive': `Conduct a deep dive into the construction sector's fleet electrification readiness in the UK. Cover regulatory pressures (Clean Air Zones, ULEZ), operational requirements (payload, range, site access), current adoption barriers, and how Toyota Professional's multi-path approach addresses sector-specific needs.`,
-};
+  'Open Research': `[RESEARCH TEMPLATE — Edit the parameters below or replace with your own prompt]
 
-/** Workflow control options */
-export const WORKFLOW_CONTROLS = [
-  { value: 'pause', label: 'Pause for review' },
-  { value: 'continue', label: 'Continue workflow' },
-  { value: 'stop', label: 'Stop workflow' },
-];
+Topic: [e.g. Fleet electrification, Used truck market, Hydrogen fuel cells]
+Scope: [e.g. UK market, European regulation, Global technology trends]
+Audience: [e.g. SME fleet managers, Corporate procurement, C-suite]
+Depth: [e.g. Executive summary, Detailed analysis, Data-led deep dive]
+Specific questions:
+1. [Your first research question]
+2. [Your second research question]
+3. [Your third research question]
+
+Output format: [e.g. Strategic briefing, Market report, Competitive analysis, Fact sheet]`,
+};

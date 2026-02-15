@@ -14,7 +14,7 @@ import {
   getActivePipeline, getNextInPipeline, getPrevInPipeline, getDownstreamOptions,
 } from './utils/pipeline';
 import {
-  CHANNELS, DEFAULT_RUNBOOKS, PERSONAS, SECTORS, DEMO_PROMPTS, WORKFLOW_CONTROLS,
+  CHANNELS, DEFAULT_RUNBOOKS, PERSONAS, SECTORS, DEMO_PROMPTS,
 } from './utils/config';
 
 /* ── Component imports ── */
@@ -39,14 +39,13 @@ export default function App() {
   const [executionMode, setExecutionMode] = useState('multi');
   const [singleAgent, setSingleAgent] = useState('brief');
   const [compliancePaste, setCompliancePaste] = useState('');
-  const [workflowControl, setWorkflowControl] = useState('pause');
 
-  /* multi-agent stage toggles — Strategy ON, Compliance OFF per v2 spec */
+  /* multi-agent stage toggles — Strategy ON, Compliance ON */
   const [stages, setStages] = useState({
     brief: true,
     strategy: true,
     copy: true,
-    compliance: false,
+    compliance: true,
   });
   const [nurtureFlowMode, setNurtureFlowMode] = useState(true);
   const [demoMode, setDemoMode] = useState(true);
@@ -176,7 +175,9 @@ export default function App() {
     setApiError(null);
 
     const existingAssistant = (conversations[agentId] || []).some((m) => m.role === 'assistant');
-    const scripted = (demoMode && !existingAssistant) ? getDemoOutput(agentId) : null;
+    // Research channel always runs Open (live API) — no pre-scripted data
+    const isResearch = channel === 'Research';
+    const scripted = (demoMode && !isResearch && !existingAssistant) ? getDemoOutput(agentId) : null;
     if (scripted) {
       await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
       const conf = extractConfidence(scripted);
@@ -569,16 +570,6 @@ export default function App() {
           <div className="section-label">Workflow Governance</div>
           <div className="helper-text">Control how work progresses through the workflow, including when it runs automatically and when human review is required.</div>
 
-          {/* G) WORKFLOW CONTROL */}
-          <div style={{ marginBottom: 20 }}>
-            <div className="section-label" style={{ marginBottom: 8 }}>Workflow Control</div>
-            <div className="helper-text" style={{ marginBottom: 10 }}>Choose whether the workflow continues automatically, pauses for human review, or stops.</div>
-            <select value={workflowControl} onChange={(e) => setWorkflowControl(e.target.value)} style={{ maxWidth: 280 }}>
-              {WORKFLOW_CONTROLS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-            </select>
-          </div>
-
-          {/* H) EXECUTION MODE */}
           <div>
             <div className="section-label" style={{ marginBottom: 8 }}>Execution Mode</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
