@@ -20,6 +20,7 @@ import { chatRoute } from './api/chat.js';
 import { perplexityRoute } from './api/perplexity.js';
 import { referenceRoute } from './api/reference.js';
 import { researchRoute } from './api/research.js';
+import { createSpecialistRoute } from './api/specialists.js';
 
 // Load .env from project root (one level up from server/)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,7 @@ app.post('/api/chat', chatRoute);
 app.post('/api/perplexity', perplexityRoute);
 app.post('/api/research', researchRoute);
 app.get('/api/reference', referenceRoute);
+app.post('/api/specialists/create', createSpecialistRoute);
 
 /* ── Startup: load reference material then listen ── */
 async function start() {
@@ -62,6 +64,7 @@ async function start() {
     console.log('     POST /api/perplexity  — Perplexity API proxy');
     console.log('     POST /api/research   — Research orchestration (specialist fan-out)');
     console.log('     GET  /api/reference   — Query reference material');
+    console.log('     POST /api/specialists/create — Create dynamic specialist');
     console.log('');
   });
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AGENTS, AGENT_ORDER, SPECIALIST_REGISTRY, RUNBOOK_SPECIALIST_MAP, buildSystemPrompt, callAgent, callResearch } from './agents/index';
+import { AGENTS, AGENT_ORDER, SPECIALIST_REGISTRY, RUNBOOK_SPECIALIST_MAP, buildSystemPrompt, callAgent, callResearch, createSpecialist } from './agents/index';
 import demoData from './data/demoData';
 import {
   AGENT_ICONS, CheckIcon, ArrowRightIcon, SkipIcon, SendIcon,
@@ -101,6 +101,12 @@ export default function App() {
   const [researchContributors, setResearchContributors] = useState([]);
   const [researchFailed, setResearchFailed] = useState([]);
 
+  /* dynamic specialists */
+  const [dynamicSpecialists, setDynamicSpecialists] = useState({});
+  const [specialistModalOpen, setSpecialistModalOpen] = useState(false);
+  const [newSpecialist, setNewSpecialist] = useState({ name: '', domain: '', expertise: '', icon: '🔬' });
+  const [creatingSpecialist, setCreatingSpecialist] = useState(false);
+
   const addAuditEntry = useCallback((type, agentId, detail, meta = {}) => {
     setAuditLog((prev) => [...prev, {
       id: Date.now() + Math.random(),
@@ -141,6 +147,29 @@ export default function App() {
     } catch (err) {
       console.error('KB save failed:', err);
     }
+  };
+
+  /* create a new dynamic specialist */
+  const handleCreateSpecialist = async () => {
+    if (!newSpecialist.name || !newSpecialist.domain || !newSpecialist.expertise) return;
+    setCreatingSpecialist(true);
+    try {
+      const expertiseAreas = newSpecialist.expertise.split('\n').map(l => l.trim()).filter(Boolean);
+      const result = await createSpecialist({
+        name: newSpecialist.name,
+        domain: newSpecialist.domain,
+        expertiseAreas,
+        icon: newSpecialist.icon || '🔬',
+        perplexity: 'optional',
+      });
+      setDynamicSpecialists((prev) => ({ ...prev, [result.id]: result }));
+      addAuditEntry('specialist-created', null, `New specialist created: ${result.name}`, { specialistId: result.id, domain: result.domain });
+      setSpecialistModalOpen(false);
+      setNewSpecialist({ name: '', domain: '', expertise: '', icon: '🔬' });
+    } catch (err) {
+      setApiError(`Specialist creation failed: ${err.message}`);
+    }
+    setCreatingSpecialist(false);
   };
 
   /* load demo prompt on runbook change */
@@ -303,11 +332,12 @@ export default function App() {
               ],
             }));
 
-            // Gather KB contexts for each specialist
+            // Gather KB contexts for each specialist (built-in + dynamic)
+            const fullRegistry = { ...SPECIALIST_REGISTRY, ...dynamicSpecialists };
             const kbContexts = {};
-            const targetSpecIds = RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALIST_REGISTRY);
+            const targetSpecIds = RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(fullRegistry);
             for (const specId of targetSpecIds) {
-              const spec = SPECIALIST_REGISTRY[specId];
+              const spec = fullRegistry[specId];
               if (spec?.kbCategory) {
                 const specKB = await getKBContext(spec.kbCategory);
                 if (specKB) kbContexts[specId] = specKB;
@@ -321,6 +351,7 @@ export default function App() {
               persona,
               sector,
               knowledgeBankContexts: kbContexts,
+              dynamicSpecialists,
             });
 
             setResearchContributors(researchResult.contributors || []);
@@ -935,6 +966,35 @@ Do not reproduce the research verbatim — transform it into compelling content 
           )}
         </div>
 
+        {/* SPECIALIST MANAGEMENT — Research channel only */}
+        {isResearchChannel && (
+          <div className="card">
+            <div className="section-label">Research Specialists</div>
+            <div className="helper-text">Specialist agents that contribute to research. You can create new specialists for topics not covered by the defaults.</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              {Object.values(SPECIALIST_REGISTRY).map((spec) => (
+                <span key={spec.id} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                  background: t.surface, border: `1px solid ${t.border}`, fontSize: 12, fontWeight: 500, color: t.textSec,
+                }}>
+                  {spec.icon} {spec.name}
+                </span>
+              ))}
+              {Object.values(dynamicSpecialists).map((spec) => (
+                <span key={spec.id} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                  background: ACCENT.light, border: `1px solid ${ACCENT.primary}33`, fontSize: 12, fontWeight: 600, color: ACCENT.text,
+                }}>
+                  {spec.icon} {spec.name} <span style={{ fontSize: 10, color: t.textMut }}>(new)</span>
+                </span>
+              ))}
+            </div>
+            <button className="icon-btn" onClick={() => setSpecialistModalOpen(true)} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              + New Specialist
+            </button>
+          </div>
+        )}
+
         {/* I) START WORKFLOW */}
         <div className="card">
           <div className="section-label">Start Workflow</div>
@@ -1084,8 +1144,8 @@ Do not reproduce the research verbatim — transform it into compelling content 
                             <span style={{ fontSize: 12, fontWeight: 500, color: t.textMut, fontVariantNumeric: 'tabular-nums' }}>{elapsedSeconds}s</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            {(RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALIST_REGISTRY)).map((specId) => {
-                              const spec = SPECIALIST_REGISTRY[specId];
+                            {(RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys({ ...SPECIALIST_REGISTRY, ...dynamicSpecialists })).map((specId) => {
+                              const spec = SPECIALIST_REGISTRY[specId] || dynamicSpecialists[specId];
                               if (!spec) return null;
                               return (
                                 <span key={specId} style={{
@@ -1309,6 +1369,72 @@ Do not reproduce the research verbatim — transform it into compelling content 
           </div>
         )}
       </div>
+
+      {/* ── SPECIALIST CREATION MODAL ── */}
+      {specialistModalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, animation: 'fadeUp 0.2s ease-out',
+        }} onClick={(e) => { if (e.target === e.currentTarget) setSpecialistModalOpen(false); }}>
+          <div style={{
+            background: t.cardBg, borderRadius: 16, border: `1px solid ${t.border}`,
+            padding: '28px 32px', width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: t.text }}>Create New Specialist</div>
+            <div style={{ fontSize: 13, color: t.textSec, marginBottom: 20 }}>
+              Add a new Topical Specialist Agent to expand research coverage.
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: t.textSec, marginBottom: 4 }}>Specialist Name</label>
+                  <input style={{
+                    fontFamily: 'inherit', fontSize: 14, color: t.text, background: t.inputBg,
+                    border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 12px', width: '100%',
+                  }} value={newSpecialist.name} onChange={(e) => setNewSpecialist(p => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g. Aftersales & Service Network" />
+                </div>
+                <div style={{ width: 70 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: t.textSec, marginBottom: 4 }}>Icon</label>
+                  <input style={{
+                    fontFamily: 'inherit', fontSize: 20, color: t.text, background: t.inputBg,
+                    border: `1px solid ${t.border}`, borderRadius: 8, padding: '7px 12px', width: '100%', textAlign: 'center',
+                  }} value={newSpecialist.icon} onChange={(e) => setNewSpecialist(p => ({ ...p, icon: e.target.value }))} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: t.textSec, marginBottom: 4 }}>Domain (one sentence)</label>
+                <input style={{
+                  fontFamily: 'inherit', fontSize: 14, color: t.text, background: t.inputBg,
+                  border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 12px', width: '100%',
+                }} value={newSpecialist.domain} onChange={(e) => setNewSpecialist(p => ({ ...p, domain: e.target.value }))}
+                  placeholder="e.g. Aftersales service operations, dealer networks, and customer retention" />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: t.textSec, marginBottom: 4 }}>Expertise Areas (one per line)</label>
+                <textarea style={{
+                  fontFamily: 'inherit', fontSize: 14, color: t.text, background: t.inputBg,
+                  border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 12px', width: '100%',
+                  resize: 'vertical', minHeight: 80, lineHeight: 1.6,
+                }} value={newSpecialist.expertise} onChange={(e) => setNewSpecialist(p => ({ ...p, expertise: e.target.value }))}
+                  placeholder={'Service network coverage and dealer performance\nCustomer retention and loyalty programmes\nAftersales revenue and margin analysis'} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+              <button className="icon-btn" onClick={() => setSpecialistModalOpen(false)} style={{ padding: '10px 20px', fontSize: 13 }}>Cancel</button>
+              <button className="approve-btn" onClick={handleCreateSpecialist}
+                disabled={creatingSpecialist || !newSpecialist.name || !newSpecialist.domain || !newSpecialist.expertise}>
+                {creatingSpecialist ? 'Creating...' : 'Create Specialist'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

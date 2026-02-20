@@ -10,6 +10,7 @@ export { AGENTS, AGENT_ORDER, SPECIALIST_REGISTRY, RUNBOOK_SPECIALIST_MAP };
 // Local dev: Express proxy on port 3001
 const API_URL = import.meta.env.PROD ? '/api/chat' : 'http://localhost:3001/api/chat';
 const RESEARCH_URL = import.meta.env.PROD ? '/api/research' : 'http://localhost:3001/api/research';
+const SPECIALIST_URL = import.meta.env.PROD ? '/api/specialists' : 'http://localhost:3001/api/specialists/create';
 
 /**
  * Build the system prompt for an agent, including:
@@ -142,12 +143,16 @@ export async function callResearch({
   sector = '',
   specialistIds,
   knowledgeBankContexts = {},
+  dynamicSpecialists = {},
 } = {}) {
+  // Merge built-in registry with any dynamic specialists
+  const fullRegistry = { ...SPECIALIST_REGISTRY, ...dynamicSpecialists };
+
   // Send specialist .md prompts so the server can build their system prompts
   const specialistPrompts = {};
-  const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALIST_REGISTRY);
+  const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(fullRegistry);
   for (const id of targetIds) {
-    const spec = SPECIALIST_REGISTRY[id];
+    const spec = fullRegistry[id];
     if (spec?.systemPrompt) specialistPrompts[id] = spec.systemPrompt;
   }
 
@@ -169,6 +174,32 @@ export async function callResearch({
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`Research API error ${response.status}: ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Create a new dynamic specialist via the server.
+ * Returns the specialist config (id, name, icon, systemPrompt, kbCategory, perplexity).
+ */
+export async function createSpecialist({
+  name,
+  domain,
+  expertiseAreas = [],
+  guardrails = [],
+  icon = '🔬',
+  perplexity = 'optional',
+} = {}) {
+  const response = await fetch(SPECIALIST_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, domain, expertiseAreas, guardrails, icon, perplexity }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Specialist creation error ${response.status}: ${errText}`);
   }
 
   return response.json();
