@@ -29,7 +29,11 @@ function detectPattern(text) {
   return null;
 }
 
-/* ── Track whether we're inside a Sources / References section ── */
+/* ── Track whether we're inside a Sources / References section ──
+   Module-level flag — set when we encounter a ## Sources heading,
+   cleared on the next non-sources heading. This lets child elements
+   (ol, ul, li, a) render in smaller, muted grey for citation lists.
+   Safe because ReactMarkdown renders synchronously in a single pass. */
 let inSourcesSection = false;
 
 export const agentMarkdownComponents = {

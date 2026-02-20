@@ -28,6 +28,14 @@ function AgentIcon({ agentId, size = 18, color = 'currentColor' }) {
   return <Icon size={size} color={color} />;
 }
 
+/* ── Content format options for Research → Content handoff ── */
+const CONTENT_FORMATS = [
+  { id: 'social', label: 'Social Posts', icon: '📱', desc: 'LinkedIn / social media posts derived from the research' },
+  { id: 'thought-leadership', label: 'Thought Leadership', icon: '📄', desc: 'Long-form article or white paper grounded in the research' },
+  { id: 'nurture', label: 'Nurture Campaign', icon: '📧', desc: 'Email nurture sequence informed by the research findings' },
+  { id: 'website', label: 'Website Copy', icon: '🌐', desc: 'Web page copy underpinned by the research insights' },
+];
+
 /* ── App ───────────────────────────────────────────────── */
 export default function App() {
   /* config */
@@ -68,6 +76,8 @@ export default function App() {
   const [copiedKey, setCopiedKey] = useState(null);
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [typingStartTime, setTypingStartTime] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [approvedOutputs, setApprovedOutputs] = useState({});
   const [apiError, setApiError] = useState(null);
 
@@ -117,6 +127,18 @@ export default function App() {
       inputRef.current?.focus();
     }
   }, [currentAgent, isTyping]);
+
+  /* elapsed timer — ticks every second while an agent is thinking */
+  useEffect(() => {
+    if (!isTyping || !typingStartTime) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const tick = () => setElapsedSeconds(Math.floor((Date.now() - typingStartTime) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [isTyping, typingStartTime]);
 
   /* handlers */
   const handleChannelChange = (ch) => {
@@ -188,6 +210,7 @@ export default function App() {
   /* ── helper: call agent and update conversation ── */
   const callAgentAndUpdate = async (agentId, messagesForApi, opts = {}) => {
     setIsTyping(true);
+    setTypingStartTime(Date.now());
     setApiError(null);
 
     const existingAssistant = (conversations[agentId] || []).some((m) => m.role === 'assistant');
@@ -418,14 +441,6 @@ export default function App() {
     setWorkflowComplete(true);
     setCurrentAgent(null);
   };
-
-  /* ── content format definitions ── */
-  const CONTENT_FORMATS = [
-    { id: 'social', label: 'Social Posts', icon: '📱', desc: 'LinkedIn / social media posts derived from the research' },
-    { id: 'thought-leadership', label: 'Thought Leadership', icon: '📄', desc: 'Long-form article or white paper grounded in the research' },
-    { id: 'nurture', label: 'Nurture Campaign', icon: '📧', desc: 'Email nurture sequence informed by the research findings' },
-    { id: 'website', label: 'Website Copy', icon: '🌐', desc: 'Web page copy underpinned by the research insights' },
-  ];
 
   /* ── research → content handoff ── */
   const handleResearchToContent = async (formatId) => {
@@ -912,10 +927,15 @@ Do not reproduce the research verbatim — transform it into compelling content 
                         <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: currentAgentDef?.colour + '20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <AgentIcon agentId={currentAgent} size={16} color={currentAgentDef?.colour} />
                         </div>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: currentAgentDef?.colour }}>{currentAgentDef?.name}</div>
-                          <div style={{ display: 'flex', gap: 5, padding: '4px 0' }}>
-                            {[0, 1, 2].map(i => <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: t.textMut, animation: `dotPulse 1.4s ease-in-out ${i * 0.2}s infinite` }} />)}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: currentAgentDef?.colour }}>{currentAgentDef?.name} is thinking</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: t.textMut, fontVariantNumeric: 'tabular-nums' }}>{elapsedSeconds}s</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ display: 'flex', gap: 5 }}>
+                              {[0, 1, 2].map(i => <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: currentAgentDef?.colour, opacity: 0.6, animation: `dotPulse 1.4s ease-in-out ${i * 0.2}s infinite` }} />)}
+                            </div>
                           </div>
                         </div>
                       </div>

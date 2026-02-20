@@ -1,22 +1,10 @@
-// Agent registry — centralised config for all agents
-// Live Claude API calls via local proxy (server.js)
+/* ── Agent orchestration layer ──
+   Loads agent configs from agent-config.js (which imports .md prompts).
+   Builds system prompts and calls Claude API. */
 
-import briefingAgent from './briefing';
-import strategyAgent from './strategy';
-import copyAgent from './copy';
-import nurtureFlowAgent from './nurtureFlow';
-import complianceAgent from './compliance';
+import { AGENTS, AGENT_ORDER, SUB_AGENTS } from './agent-config.js';
 
-export const AGENTS = {
-  brief: briefingAgent,
-  strategy: strategyAgent,
-  copy: copyAgent,
-  compliance: complianceAgent,
-};
-
-export const NURTURE_AGENT = nurtureFlowAgent;
-
-export const AGENT_ORDER = ['brief', 'strategy', 'copy', 'compliance'];
+export { AGENTS, AGENT_ORDER };
 
 // Production (Vercel): relative path to serverless function
 // Local dev: Express proxy on port 3001
@@ -24,11 +12,21 @@ const API_URL = import.meta.env.PROD ? '/api/chat' : 'http://localhost:3001/api/
 
 /**
  * Build the system prompt for an agent, including:
- * - The agent's base system prompt
+ * - Orchestration framing (role identity)
+ * - Agent base system prompt (from .md file)
  * - Nurture Flow sub-agent instructions (if copy agent + nurture mode)
- * - Approved output from previous agent (if in pipeline)
+ * - Reference material (passed in from caller, populated by backend in Phase 2)
+ * - Knowledge bank entries (passed in from caller, populated in Phase 3)
+ * - Approved output from previous agent(s)
  */
-export function buildSystemPrompt(agentId, { nurtureFlowMode = false, channel = '', runbook = '', approvedOutputs = {} } = {}) {
+export function buildSystemPrompt(agentId, {
+  nurtureFlowMode = false,
+  channel = '',
+  runbook = '',
+  approvedOutputs = {},
+  referenceContext = '',
+  knowledgeBankContext = '',
+} = {}) {
   const agent = AGENTS[agentId];
   if (!agent) return '';
 
@@ -51,7 +49,17 @@ ${basePrompt}`;
   // Copy agent: append nurture sub-agent instructions ONLY for CRM > Nurture Journeys
   const isNurtureContext = channel === 'CRM' && runbook === 'Nurture Journeys';
   if (agentId === 'copy' && nurtureFlowMode && isNurtureContext) {
-    sys += `\n\n---\n[NURTURE FLOW SUB-AGENT ACTIVE]\n${nurtureFlowAgent.systemPrompt}`;
+    sys += `\n\n---\n[NURTURE FLOW SUB-AGENT ACTIVE]\n${SUB_AGENTS.nurtureFlow.systemPrompt}`;
+  }
+
+  // Inject reference material (populated by backend in Phase 2)
+  if (referenceContext) {
+    sys += `\n\n${referenceContext}`;
+  }
+
+  // Inject knowledge bank entries (populated in Phase 3)
+  if (knowledgeBankContext) {
+    sys += `\n\n${knowledgeBankContext}`;
   }
 
   // Inject approved outputs from upstream agents
@@ -75,7 +83,7 @@ ${basePrompt}`;
 }
 
 /**
- * Call Claude API via local proxy.
+ * Call Claude API via proxy.
  * Takes full conversation history (role/content pairs) and system prompt.
  * Returns the assistant's text response.
  */
@@ -103,21 +111,4 @@ export async function callAgent(systemPrompt, messages) {
 
   const data = await response.json();
   return data.content?.map((c) => c.text || '').join('\n') || 'No response received.';
-}
-
-// Kept for fallback / static demo mode
-export function getAgentOutput(agentId, channel, runbook, demoData) {
-  const channelData = demoData[channel];
-  if (!channelData) return null;
-  const runbookData = channelData.runbooks[runbook];
-  if (!runbookData) return null;
-
-  const outputMap = {
-    brief: 'briefOutput',
-    strategy: 'strategyOutput',
-    copy: 'copyOutput',
-    compliance: 'complianceOutput',
-  };
-
-  return runbookData[outputMap[agentId]] || null;
 }
