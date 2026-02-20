@@ -1,7 +1,7 @@
 /* ── Header bar ── */
 import { ACCENT, THEME as t } from '../utils/theme';
 
-export default function Header({ auditLog, adminOpen, setAdminOpen }) {
+export default function Header({ auditLog, adminOpen, setAdminOpen, kbCount, kbOpen, setKbOpen }) {
   return (
     <header style={{
       height: 56, borderBottom: `1px solid ${t.border}`,
@@ -17,6 +17,35 @@ export default function Header({ auditLog, adminOpen, setAdminOpen }) {
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Knowledge Bank button */}
+        <button
+          onClick={() => setKbOpen(!kbOpen)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 8,
+            border: `1px solid ${kbOpen ? '#d97706' : t.border}`,
+            background: kbOpen ? '#fffbeb' : 'transparent',
+            color: kbOpen ? '#d97706' : t.textSec,
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            fontFamily: 'inherit', transition: 'all 0.15s',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          Knowledge Bank
+          {kbCount > 0 && (
+            <span style={{
+              background: '#d97706', color: '#fff', fontSize: 10, fontWeight: 700,
+              padding: '1px 6px', borderRadius: 10, minWidth: 18, textAlign: 'center',
+            }}>
+              {kbCount}
+            </span>
+          )}
+        </button>
+
+        {/* Audit Log button */}
         <button
           onClick={() => setAdminOpen(!adminOpen)}
           style={{

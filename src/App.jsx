@@ -20,6 +20,12 @@ import {
 /* ── Component imports ── */
 import Header from './components/Header';
 import AuditLogPanel from './components/AuditLogPanel';
+import KnowledgeBankPanel from './components/KnowledgeBankPanel';
+import ApprovalGate from './components/ApprovalGate';
+
+/* ── Knowledge Bank imports ── */
+import { addEntry as kbAddEntry, getEntryCount } from './knowledge-bank/store';
+import { getKBContext } from './knowledge-bank/query';
 
 /* ── helper: render agent icon by id ─────────────────── */
 function AgentIcon({ agentId, size = 18, color = 'currentColor' }) {
@@ -86,6 +92,10 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [auditFilter, setAuditFilter] = useState('all');
 
+  /* knowledge bank */
+  const [kbOpen, setKbOpen] = useState(false);
+  const [kbCount, setKbCount] = useState(0);
+
   const addAuditEntry = useCallback((type, agentId, detail, meta = {}) => {
     setAuditLog((prev) => [...prev, {
       id: Date.now() + Math.random(),
@@ -100,6 +110,33 @@ export default function App() {
 
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
+
+  /* load KB entry count on mount */
+  useEffect(() => { refreshKBCount(); }, []);
+  const refreshKBCount = async () => {
+    try { setKbCount(await getEntryCount()); } catch { /* ignore */ }
+  };
+
+  /* save to knowledge bank helper */
+  const saveToKnowledgeBank = async (agentId, content, tag, category) => {
+    try {
+      await kbAddEntry({
+        agent: agentId,
+        category,
+        tag: tag || `${AGENTS[agentId]?.name} output`,
+        content,
+        channel,
+        runbook,
+        persona,
+        sector,
+        campaignContext: prompt,
+      });
+      await refreshKBCount();
+      addAuditEntry('kb-save', agentId, `Saved to Knowledge Bank: ${category}`, { tag, category });
+    } catch (err) {
+      console.error('KB save failed:', err);
+    }
+  };
 
   /* load demo prompt on runbook change */
   useEffect(() => {
@@ -233,11 +270,16 @@ export default function App() {
     }
 
     try {
+      // Fetch KB context for this agent's category
+      const agentDef = AGENTS[agentId];
+      const knowledgeBankContext = agentDef?.kbCategory ? await getKBContext(agentDef.kbCategory) : '';
+
       const systemPrompt = buildSystemPrompt(agentId, {
         nurtureFlowMode,
         channel,
         runbook,
         approvedOutputs,
+        knowledgeBankContext,
         ...opts,
       });
       const reply = await callAgent(systemPrompt, messagesForApi, {
@@ -330,8 +372,8 @@ export default function App() {
     await callAgentAndUpdate(currentAgent, updatedMessages);
   };
 
-  /* ── approve & hand off ── */
-  const handleHandoff = async (targetAgentId) => {
+  /* ── approve via approval gate ── */
+  const handleApprovalGate = async ({ saveToKB, tag, category, targetAgentId }) => {
     if (!currentAgent) return;
 
     const currentConvo = conversations[currentAgent] || [];
@@ -339,19 +381,36 @@ export default function App() {
     const approvedContent = lastAssistant?.content || '';
     const conf = extractConfidence(approvedContent);
 
-    addAuditEntry('approve', currentAgent, `${AGENTS[currentAgent].name} output approved by human reviewer`, { confidence: conf });
-    addAuditEntry('handoff', currentAgent, `Handoff: ${AGENTS[currentAgent].name} → ${AGENTS[targetAgentId].name}`, { targetAgent: targetAgentId });
+    // Save to KB if requested
+    if (saveToKB && approvedContent) {
+      await saveToKnowledgeBank(currentAgent, approvedContent, tag, category);
+    }
+
+    addAuditEntry('approve', currentAgent, `${AGENTS[currentAgent].name} output approved by human reviewer`, { confidence: conf, savedToKB: saveToKB });
 
     const newApprovedOutputs = { ...approvedOutputs, [currentAgent]: approvedContent };
     setApprovedOutputs(newApprovedOutputs);
     setCompletedAgents((prev) => [...prev, currentAgent]);
+
+    const kbNote = saveToKB ? ' (saved to KB)' : '';
     setConversations((prev) => ({
       ...prev,
       [currentAgent]: [
         ...(prev[currentAgent] || []),
-        { role: 'system', content: `Output approved \u2713` },
+        { role: 'system', content: `Output approved \u2713${kbNote}` },
       ],
     }));
+
+    // If no target agent → finalise
+    if (!targetAgentId) {
+      addAuditEntry('finalise', currentAgent, `Workflow finalised — all outputs approved`);
+      setWorkflowComplete(true);
+      setCurrentAgent(null);
+      return;
+    }
+
+    // Hand off to target agent
+    addAuditEntry('handoff', currentAgent, `Handoff: ${AGENTS[currentAgent].name} → ${AGENTS[targetAgentId].name}`, { targetAgent: targetAgentId });
 
     const prevAgentName = AGENTS[currentAgent].name;
     const nextAgentName = AGENTS[targetAgentId].name;
@@ -369,6 +428,11 @@ export default function App() {
     setCurrentAgent(targetAgentId);
 
     await callAgentAndUpdate(targetAgentId, initialMessages, { approvedOutputs: newApprovedOutputs });
+  };
+
+  /* ── legacy handleHandoff for research flows (preserves existing research handoff logic) ── */
+  const handleHandoff = async (targetAgentId) => {
+    await handleApprovalGate({ saveToKB: false, tag: null, category: null, targetAgentId });
   };
 
   /* ── skip current agent ── */
@@ -421,29 +485,9 @@ export default function App() {
     });
   };
 
-  /* ── finalise ── */
+  /* ── finalise (used by research flows) ── */
   const handleFinalise = () => {
-    if (!currentAgent) return;
-
-    const currentConvo = conversations[currentAgent] || [];
-    const lastAssistant = [...currentConvo].reverse().find((m) => m.role === 'assistant');
-    const approvedContent = lastAssistant?.content || '';
-    const conf = extractConfidence(approvedContent);
-
-    addAuditEntry('approve', currentAgent, `${AGENTS[currentAgent].name} output approved by human reviewer`, { confidence: conf });
-    addAuditEntry('finalise', currentAgent, `Workflow finalised — all outputs approved`);
-
-    setApprovedOutputs((prev) => ({ ...prev, [currentAgent]: approvedContent }));
-    setCompletedAgents((prev) => [...prev, currentAgent]);
-    setConversations((prev) => ({
-      ...prev,
-      [currentAgent]: [
-        ...(prev[currentAgent] || []),
-        { role: 'system', content: `Output approved \u2713` },
-      ],
-    }));
-    setWorkflowComplete(true);
-    setCurrentAgent(null);
+    handleApprovalGate({ saveToKB: false, tag: null, category: null, targetAgentId: null });
   };
 
   /* ── research → content handoff ── */
@@ -657,8 +701,9 @@ Do not reproduce the research verbatim — transform it into compelling content 
         ::-webkit-scrollbar-track { background: transparent; }
       `}</style>
 
-      <Header auditLog={auditLog} adminOpen={adminOpen} setAdminOpen={setAdminOpen} />
+      <Header auditLog={auditLog} adminOpen={adminOpen} setAdminOpen={setAdminOpen} kbCount={kbCount} kbOpen={kbOpen} setKbOpen={setKbOpen} />
       <AuditLogPanel auditLog={auditLog} adminOpen={adminOpen} setAdminOpen={setAdminOpen} auditFilter={auditFilter} setAuditFilter={setAuditFilter} />
+      <KnowledgeBankPanel open={kbOpen} onClose={() => setKbOpen(false)} onRefresh={refreshKBCount} />
 
       <div style={{ maxWidth: 1140, margin: '0 auto', padding: '36px 24px 40px' }}>
         {/* A) NEW STRUCTURE */}
@@ -1050,26 +1095,24 @@ Do not reproduce the research verbatim — transform it into compelling content 
                       </div>
                     )}
 
-                    {/* ── STANDARD ACTION BAR: non-research flows ── */}
+                    {/* ── STANDARD APPROVAL GATE: non-research flows ── */}
                     {canHandoff && !isResearchChannel && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {prevAgentId && <button className="back-btn" onClick={handleGoBack}><ArrowRightIcon size={12} color={t.textSec} /> Back</button>}
-                          {nextAgentId && <button className="skip-btn" onClick={handleSkip} disabled={isTyping}><SkipIcon size={12} color={t.textSec} /> Skip</button>}
-                          <span style={{ fontSize: 12, color: t.textMut }}>{hasDownstream ? 'Approve and route' : 'Approve to finalise'}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {downstreamOptions.map((targetId, i) => (
-                            <button key={targetId} className="approve-btn" onClick={() => handleHandoff(targetId)} disabled={isTyping}
-                              style={i > 0 ? { background: 'transparent', border: `1px solid ${ACCENT.primary}`, color: ACCENT.text } : {}}>
-                              {i === 0 && <CheckIcon size={12} color="#fff" />}
-                              Approve <ArrowRightIcon size={12} color={i === 0 ? '#fff' : ACCENT.text} /> {AGENTS[targetId].name}
-                            </button>
-                          ))}
-                          <button className="finalise-btn" onClick={handleFinalise} disabled={isTyping} style={hasDownstream ? { animation: 'none' } : {}}>
-                            <CheckIcon size={14} color={ACCENT.text} /> Finalise
-                          </button>
-                        </div>
+                      <div>
+                        {prevAgentId && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <button className="back-btn" onClick={handleGoBack}><ArrowRightIcon size={12} color={t.textSec} /> Back</button>
+                            {nextAgentId && <button className="skip-btn" onClick={handleSkip} disabled={isTyping}><SkipIcon size={12} color={t.textSec} /> Skip</button>}
+                          </div>
+                        )}
+                        <ApprovalGate
+                          agentId={currentAgent}
+                          onApprove={handleApprovalGate}
+                          onRequestChanges={() => inputRef.current?.focus()}
+                          downstreamOptions={downstreamOptions}
+                          isLastAgent={!hasDownstream}
+                          isTyping={isTyping}
+                          disabled={false}
+                        />
                       </div>
                     )}
                   </div>
