@@ -40,6 +40,11 @@ export default function App() {
   const [singleAgent, setSingleAgent] = useState('brief');
   const [compliancePaste, setCompliancePaste] = useState('');
 
+  /* research → content creation flow */
+  const [researchHandoffActive, setResearchHandoffActive] = useState(false);
+  const [contentFormatPicker, setContentFormatPicker] = useState(false);
+  const [selectedContentFormat, setSelectedContentFormat] = useState(null);
+
   /* multi-agent stage toggles — Strategy ON, Compliance ON */
   const [stages, setStages] = useState({
     brief: true,
@@ -146,6 +151,9 @@ export default function App() {
     setChatInput('');
     setApiError(null);
     setAuditLog([]);
+    setResearchHandoffActive(false);
+    setContentFormatPicker(false);
+    setSelectedContentFormat(null);
   };
 
   const toggleStage = (id) => {
@@ -411,6 +419,113 @@ export default function App() {
     setCurrentAgent(null);
   };
 
+  /* ── content format definitions ── */
+  const CONTENT_FORMATS = [
+    { id: 'social', label: 'Social Posts', icon: '📱', desc: 'LinkedIn / social media posts derived from the research' },
+    { id: 'thought-leadership', label: 'Thought Leadership', icon: '📄', desc: 'Long-form article or white paper grounded in the research' },
+    { id: 'nurture', label: 'Nurture Campaign', icon: '📧', desc: 'Email nurture sequence informed by the research findings' },
+    { id: 'website', label: 'Website Copy', icon: '🌐', desc: 'Web page copy underpinned by the research insights' },
+  ];
+
+  /* ── research → content handoff ── */
+  const handleResearchToContent = async (formatId) => {
+    const format = CONTENT_FORMATS.find((f) => f.id === formatId);
+    if (!format) return;
+
+    // Get approved research output
+    const researchConvo = conversations.strategy || [];
+    const lastResearch = [...researchConvo].reverse().find((m) => m.role === 'assistant');
+    const researchOutput = lastResearch?.content || '';
+
+    if (!researchOutput) return;
+
+    // Mark research as approved and completed
+    addAuditEntry('approve', 'strategy', 'Research output approved for content creation', { contentFormat: format.label });
+    addAuditEntry('handoff', 'strategy', `Research → Copy Agent (${format.label})`, { targetAgent: 'copy', contentFormat: format.label });
+
+    setApprovedOutputs((prev) => ({ ...prev, strategy: researchOutput }));
+    setCompletedAgents((prev) => prev.includes('strategy') ? prev : [...prev, 'strategy']);
+    setConversations((prev) => ({
+      ...prev,
+      strategy: [
+        ...(prev.strategy || []),
+        { role: 'system', content: `Research approved ✓ → Creating ${format.label}` },
+      ],
+    }));
+
+    // Set up Copy agent conversation
+    setSelectedContentFormat(formatId);
+    setResearchHandoffActive(true);
+    setContentFormatPicker(false);
+
+    const handoffMessage = `You are the Copy Agent. You have been activated from the Research channel to create content based on approved research.
+
+**Content format requested: ${format.label}**
+**${format.desc}**
+
+The approved research output is provided in your system context. Use it as the strategic foundation — extract the key insights, proof points, and narrative direction to inform your copy.
+
+Produce review-ready ${format.label.toLowerCase()} that:
+- Is grounded in the research findings (reference specific insights where relevant)
+- Follows Toyota Professional / Better Business brand tone
+- Is appropriate for the selected format and channel
+- Includes confidence scoring and rationale
+
+Do not reproduce the research verbatim — transform it into compelling content for the target format.`;
+
+    const initialMessages = [{ role: 'user', content: handoffMessage }];
+    setConversations((prev) => ({
+      ...prev,
+      copy: [
+        { role: 'system', content: `Received approved research → Creating ${format.label}` },
+        ...initialMessages,
+      ],
+    }));
+    setAgentSequence((prev) => [...prev, 'copy']);
+    setCurrentAgent('copy');
+
+    await callAgentAndUpdate('copy', initialMessages, { approvedOutputs: { ...approvedOutputs, strategy: researchOutput } });
+  };
+
+  /* ── research content → compliance handoff ── */
+  const handleContentToCompliance = async () => {
+    const copyConvo = conversations.copy || [];
+    const lastCopy = [...copyConvo].reverse().find((m) => m.role === 'assistant');
+    const copyOutput = lastCopy?.content || '';
+
+    if (!copyOutput) return;
+
+    const format = CONTENT_FORMATS.find((f) => f.id === selectedContentFormat);
+    addAuditEntry('approve', 'copy', `Copy Agent output approved (${format?.label || 'content'})`, { confidence: extractConfidence(copyOutput) });
+    addAuditEntry('handoff', 'copy', `Copy → Compliance Agent`, { targetAgent: 'compliance' });
+
+    const newApproved = { ...approvedOutputs, copy: copyOutput };
+    setApprovedOutputs(newApproved);
+    setCompletedAgents((prev) => prev.includes('copy') ? prev : [...prev, 'copy']);
+    setConversations((prev) => ({
+      ...prev,
+      copy: [
+        ...(prev.copy || []),
+        { role: 'system', content: `Copy approved ✓ → Passing to Compliance` },
+      ],
+    }));
+
+    const handoffMessage = `You are the Compliance Agent. Review the following copy for brand compliance, legal accuracy, and regulatory adherence. The copy was created from approved research and is formatted as ${format?.label || 'content'} for Toyota Professional / Better Business.`;
+
+    const initialMessages = [{ role: 'user', content: handoffMessage }];
+    setConversations((prev) => ({
+      ...prev,
+      compliance: [
+        { role: 'system', content: `Received copy for compliance review` },
+        ...initialMessages,
+      ],
+    }));
+    setAgentSequence((prev) => [...prev, 'compliance']);
+    setCurrentAgent('compliance');
+
+    await callAgentAndUpdate('compliance', initialMessages, { approvedOutputs: newApproved });
+  };
+
   /* ── browsing ── */
   const switchToAgent = (agentId) => {
     if (completedAgents.includes(agentId) || agentId === currentAgent) {
@@ -431,6 +546,7 @@ export default function App() {
   };
 
   /* ── derived state ── */
+  const isResearchChannel = channel === 'Research';
   const isNurtureJourneys = channel === 'CRM' && runbook === 'Nurture Journeys';
   const currentMessages = currentAgent ? (conversations[currentAgent] || []) : [];
   const currentAgentDef = currentAgent ? AGENTS[currentAgent] : null;
@@ -442,6 +558,16 @@ export default function App() {
   const canHandoff = currentAgent && !isCurrentCompleted && !workflowComplete && currentMessages.some((m) => m.role === 'assistant');
   const activePipeline = getActivePipeline(stages);
   const pipelinePosition = currentAgent ? activePipeline.indexOf(currentAgent) + 1 : 0;
+
+  // Research flow: show research action bar when strategy agent has output in research channel
+  const isResearchStrategyActive = isResearchChannel && currentAgent === 'strategy' && !isCurrentCompleted;
+  const hasResearchOutput = isResearchStrategyActive && currentMessages.some((m) => m.role === 'assistant');
+  // Research → Copy flow: show compliance option when copy agent has output
+  const isResearchCopyActive = isResearchChannel && researchHandoffActive && currentAgent === 'copy' && !completedAgents.includes('copy');
+  const hasResearchCopyOutput = isResearchCopyActive && currentMessages.some((m) => m.role === 'assistant');
+  // Research → Compliance flow
+  const isResearchComplianceActive = isResearchChannel && researchHandoffActive && currentAgent === 'compliance' && !completedAgents.includes('compliance');
+  const hasResearchComplianceOutput = isResearchComplianceActive && currentMessages.some((m) => m.role === 'assistant');
 
   return (
     <div style={{
@@ -807,8 +933,9 @@ export default function App() {
               {currentAgent && !workflowComplete && !browsingCompleted && (
                 <div style={{ borderTop: `1px solid ${t.border}`, padding: '16px 24px', flexShrink: 0, background: t.dockBg }}>
                   <div style={{ maxWidth: 760, margin: '0 auto' }}>
+                    {/* Chat input — always visible when agent not completed */}
                     {!isCurrentCompleted && (
-                      <div style={{ background: t.surface, borderRadius: 12, border: `1px solid ${t.border}`, padding: '12px 14px', display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: canHandoff ? 14 : 0 }}>
+                      <div style={{ background: t.surface, borderRadius: 12, border: `1px solid ${t.border}`, padding: '12px 14px', display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: (canHandoff || hasResearchOutput || hasResearchCopyOutput || hasResearchComplianceOutput) ? 14 : 0 }}>
                         <textarea ref={inputRef} className="chat-input-area" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                           onInput={(e) => { e.target.style.height = '24px'; e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px'; }}
@@ -823,7 +950,84 @@ export default function App() {
                         </button>
                       </div>
                     )}
-                    {canHandoff && (
+
+                    {/* ── RESEARCH ACTION BAR: after research output ── */}
+                    {hasResearchOutput && !contentFormatPicker && !isTyping && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: t.textMut }}>Research complete — what next?</span>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button className="approve-btn" onClick={() => setContentFormatPicker(true)} disabled={isTyping}>
+                            <ArrowRightIcon size={12} color="#fff" /> Create Content
+                          </button>
+                          <button className="skip-btn" onClick={() => {}} disabled style={{ opacity: 0.4, cursor: 'not-allowed' }} title="Coming soon — Knowledge Bank">
+                            💾 Save to Knowledge Bank
+                          </button>
+                          <button className="finalise-btn" onClick={handleFinalise} disabled={isTyping}>
+                            <CheckIcon size={14} color={ACCENT.text} /> Finalise Research
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── FORMAT PICKER: select content type ── */}
+                    {hasResearchOutput && contentFormatPicker && !isTyping && (
+                      <div style={{ animation: 'fadeUp 0.2s ease-out' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>What would you like to create from this research?</span>
+                          <button className="icon-btn" onClick={() => setContentFormatPicker(false)} style={{ padding: '3px 10px', fontSize: 11 }}>Cancel</button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          {CONTENT_FORMATS.map((fmt) => (
+                            <button key={fmt.id} onClick={() => handleResearchToContent(fmt.id)} style={{
+                              display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 10,
+                              border: `1px solid ${t.border}`, background: t.surface, cursor: 'pointer',
+                              fontFamily: 'inherit', textAlign: 'left', transition: 'all 0.15s',
+                            }}
+                              onMouseEnter={(e) => { e.currentTarget.style.borderColor = ACCENT.primary; e.currentTarget.style.background = ACCENT.light; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.background = t.surface; }}
+                            >
+                              <span style={{ fontSize: 22 }}>{fmt.icon}</span>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{fmt.label}</div>
+                                <div style={{ fontSize: 11, color: t.textSec, marginTop: 2 }}>{fmt.desc}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── RESEARCH → COPY ACTION BAR ── */}
+                    {hasResearchCopyOutput && !isTyping && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: t.textMut }}>
+                          Content ready ({CONTENT_FORMATS.find((f) => f.id === selectedContentFormat)?.label || 'content'})
+                        </span>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button className="approve-btn" onClick={handleContentToCompliance} disabled={isTyping}>
+                            <CheckIcon size={12} color="#fff" /> Approve <ArrowRightIcon size={12} color="#fff" /> Compliance
+                          </button>
+                          <button className="finalise-btn" onClick={handleFinalise} disabled={isTyping}>
+                            <CheckIcon size={14} color={ACCENT.text} /> Finalise
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── RESEARCH → COMPLIANCE ACTION BAR ── */}
+                    {hasResearchComplianceOutput && !isTyping && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: t.textMut }}>Compliance review complete</span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="finalise-btn" onClick={handleFinalise} disabled={isTyping}>
+                            <CheckIcon size={14} color={ACCENT.text} /> Finalise
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── STANDARD ACTION BAR: non-research flows ── */}
+                    {canHandoff && !isResearchChannel && (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {prevAgentId && <button className="back-btn" onClick={handleGoBack}><ArrowRightIcon size={12} color={t.textSec} /> Back</button>}

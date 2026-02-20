@@ -59,7 +59,10 @@ ${basePrompt}`;
     sys += `\n\n---APPROVED BRIEF (from upstream Briefing Agent — human-approved)---\n${approvedOutputs.brief}\n---END APPROVED BRIEF---`;
   }
   if (agentId === 'copy' && approvedOutputs.strategy) {
-    sys += `\n\n---APPROVED STRATEGIC DIRECTION (from upstream Strategy Agent — human-approved)---\n${approvedOutputs.strategy}\n---END APPROVED STRATEGIC DIRECTION---`;
+    const researchLabel = isResearchMode || channel === 'Research'
+      ? 'APPROVED RESEARCH (from Research Analyst — human-approved)'
+      : 'APPROVED STRATEGIC DIRECTION (from upstream Strategy Agent — human-approved)';
+    sys += `\n\n---${researchLabel}---\n${approvedOutputs.strategy}\n---END ${researchLabel.split('(')[0].trim()}---`;
   }
   if (agentId === 'copy' && approvedOutputs.brief) {
     sys += `\n\n---APPROVED BRIEF (from upstream Briefing Agent — human-approved)---\n${approvedOutputs.brief}\n---END APPROVED BRIEF---`;
