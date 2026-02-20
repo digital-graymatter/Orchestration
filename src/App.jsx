@@ -1010,7 +1010,7 @@ Do not reproduce the research verbatim — transform it into compelling content 
                         display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 5,
                         background: t.surface, border: `1px solid ${t.border}`, fontSize: 10, fontWeight: 600, color: t.textSec,
                       }}>
-                        {c.icon} {c.name.split(' ')[0]}
+                        {c.icon} {c.name.split(' ')[0]}{c.webResearch ? ' 🌐' : ''}
                       </span>
                     ))}
                   </div>
