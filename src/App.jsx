@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { AGENTS, AGENT_ORDER, buildSystemPrompt, callAgent } from './agents/index';
+import { AGENTS, AGENT_ORDER, SPECIALIST_REGISTRY, RUNBOOK_SPECIALIST_MAP, buildSystemPrompt, callAgent, callResearch } from './agents/index';
 import demoData from './data/demoData';
 import {
   AGENT_ICONS, CheckIcon, ArrowRightIcon, SkipIcon, SendIcon,
@@ -95,6 +95,11 @@ export default function App() {
   /* knowledge bank */
   const [kbOpen, setKbOpen] = useState(false);
   const [kbCount, setKbCount] = useState(0);
+
+  /* research orchestration */
+  const [isResearching, setIsResearching] = useState(false);
+  const [researchContributors, setResearchContributors] = useState([]);
+  const [researchFailed, setResearchFailed] = useState([]);
 
   const addAuditEntry = useCallback((type, agentId, detail, meta = {}) => {
     setAuditLog((prev) => [...prev, {
@@ -213,6 +218,9 @@ export default function App() {
     setResearchHandoffActive(false);
     setContentFormatPicker(false);
     setSelectedContentFormat(null);
+    setIsResearching(false);
+    setResearchContributors([]);
+    setResearchFailed([]);
   };
 
   const toggleStage = (id) => {
@@ -274,6 +282,80 @@ export default function App() {
       const agentDef = AGENTS[agentId];
       const knowledgeBankContext = agentDef?.kbCategory ? await getKBContext(agentDef.kbCategory) : '';
 
+      // ── Research orchestration: Strategy agent in Research channel ──
+      // First fan out to specialists, then feed compiled research to Strategy for synthesis
+      const isResearchOrchestration = channel === 'Research' && agentId === 'strategy';
+      let researchContext = '';
+
+      if (isResearchOrchestration) {
+        const existingAssistantCount = (conversations[agentId] || []).filter(m => m.role === 'assistant').length;
+        // Only run specialist fan-out on first call (not refinement)
+        if (existingAssistantCount === 0) {
+          try {
+            setIsResearching(true);
+
+            // Show research indicator in conversation
+            setConversations((prev) => ({
+              ...prev,
+              [agentId]: [
+                ...(prev[agentId] || []),
+                { role: 'system', content: `Activating specialist research agents...` },
+              ],
+            }));
+
+            // Gather KB contexts for each specialist
+            const kbContexts = {};
+            const targetSpecIds = RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALIST_REGISTRY);
+            for (const specId of targetSpecIds) {
+              const spec = SPECIALIST_REGISTRY[specId];
+              if (spec?.kbCategory) {
+                const specKB = await getKBContext(spec.kbCategory);
+                if (specKB) kbContexts[specId] = specKB;
+              }
+            }
+
+            const researchResult = await callResearch({
+              question: prompt,
+              campaignContext: prompt,
+              runbook,
+              persona,
+              sector,
+              knowledgeBankContexts: kbContexts,
+            });
+
+            setResearchContributors(researchResult.contributors || []);
+            setResearchFailed(researchResult.failed || []);
+            researchContext = researchResult.compiled || '';
+
+            addAuditEntry('research', agentId, `Research completed — ${researchResult.contributors?.length || 0} specialist(s) contributed`, {
+              contributors: researchResult.contributors?.map(c => c.name),
+              failed: researchResult.failed,
+            });
+
+            // Update conversation with specialist attribution
+            const contribNames = (researchResult.contributors || []).map(c => `${c.icon} ${c.name}`).join(', ');
+            setConversations((prev) => ({
+              ...prev,
+              [agentId]: [
+                ...(prev[agentId] || []).filter(m => m.content !== 'Activating specialist research agents...'),
+                { role: 'system', content: `Research complete — contributors: ${contribNames}` },
+              ],
+            }));
+          } catch (resErr) {
+            addAuditEntry('error', agentId, `Research orchestration error: ${resErr.message}`);
+            setConversations((prev) => ({
+              ...prev,
+              [agentId]: [
+                ...(prev[agentId] || []).filter(m => m.content !== 'Activating specialist research agents...'),
+                { role: 'system', content: `Research encountered an error — proceeding without specialist input` },
+              ],
+            }));
+          } finally {
+            setIsResearching(false);
+          }
+        }
+      }
+
       const systemPrompt = buildSystemPrompt(agentId, {
         nurtureFlowMode,
         channel,
@@ -282,7 +364,13 @@ export default function App() {
         knowledgeBankContext,
         ...opts,
       });
-      const reply = await callAgent(systemPrompt, messagesForApi, {
+
+      // Inject research findings into the system prompt for the Strategy agent to synthesise
+      const finalSystemPrompt = researchContext
+        ? `${systemPrompt}\n\n---SPECIALIST RESEARCH FINDINGS (compiled by Research Coordinator)---\n${researchContext}\n---END SPECIALIST RESEARCH FINDINGS---`
+        : systemPrompt;
+
+      const reply = await callAgent(finalSystemPrompt, messagesForApi, {
         agentId,
         channel,
         campaignContext: prompt,
@@ -298,7 +386,7 @@ export default function App() {
       }));
     } catch (err) {
       const errorMsg = err.message.includes('Failed to fetch')
-        ? 'Cannot reach API proxy. Make sure `node server.js` is running on port 3001.'
+        ? 'Cannot reach API proxy. Make sure `node server/index.js` is running on port 3001.'
         : `API error: ${err.message}`;
       setApiError(errorMsg);
       addAuditEntry('error', agentId, `Error: ${errorMsg}`);
@@ -914,6 +1002,19 @@ Do not reproduce the research verbatim — transform it into compelling content 
                 {currentAgent === 'copy' && isNurtureJourneys && nurtureFlowMode && (
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, background: ACCENT.light, color: ACCENT.text }}>Nurture Flow active</span>
                 )}
+                {/* Specialist contributor badges for research mode */}
+                {isResearchChannel && currentAgent === 'strategy' && researchContributors.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {researchContributors.map((c) => (
+                      <span key={c.id} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 5,
+                        background: t.surface, border: `1px solid ${t.border}`, fontSize: 10, fontWeight: 600, color: t.textSec,
+                      }}>
+                        {c.icon} {c.name.split(' ')[0]}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -970,6 +1071,37 @@ Do not reproduce the research verbatim — transform it into compelling content 
                       </div>
                     );
                   })}
+                  {/* Research activity indicator */}
+                  {isResearching && (
+                    <div className="msg-card" style={{ padding: '16px 0' }}>
+                      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: '#d97706' + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+                          🔍
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#d97706' }}>Research Coordinator — activating specialists</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: t.textMut, fontVariantNumeric: 'tabular-nums' }}>{elapsedSeconds}s</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            {(RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALIST_REGISTRY)).map((specId) => {
+                              const spec = SPECIALIST_REGISTRY[specId];
+                              if (!spec) return null;
+                              return (
+                                <span key={specId} style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6,
+                                  background: t.surface, border: `1px solid ${t.border}`, fontSize: 11, fontWeight: 500, color: t.textSec,
+                                }}>
+                                  <span>{spec.icon}</span> {spec.name}
+                                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#d97706', animation: 'dotPulse 1.4s ease-in-out infinite' }} />
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {isTyping && (
                     <div className="msg-card" style={{ padding: '20px 0' }}>
                       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
@@ -978,7 +1110,9 @@ Do not reproduce the research verbatim — transform it into compelling content 
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: currentAgentDef?.colour }}>{currentAgentDef?.name} is thinking</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: currentAgentDef?.colour }}>
+                              {isResearching ? 'Waiting for specialist research...' : `${currentAgentDef?.name} is ${researchContributors.length > 0 && channel === 'Research' ? 'synthesising research' : 'thinking'}`}
+                            </span>
                             <span style={{ fontSize: 12, fontWeight: 500, color: t.textMut, fontVariantNumeric: 'tabular-nums' }}>{elapsedSeconds}s</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1028,7 +1162,13 @@ Do not reproduce the research verbatim — transform it into compelling content 
                           <button className="approve-btn" onClick={() => setContentFormatPicker(true)} disabled={isTyping}>
                             <ArrowRightIcon size={12} color="#fff" /> Create Content
                           </button>
-                          <button className="skip-btn" onClick={() => {}} disabled style={{ opacity: 0.4, cursor: 'not-allowed' }} title="Coming soon — Knowledge Bank">
+                          <button className="skip-btn" onClick={async () => {
+                            const resConvo = conversations.strategy || [];
+                            const lastRes = [...resConvo].reverse().find((m) => m.role === 'assistant');
+                            if (lastRes?.content) {
+                              await saveToKnowledgeBank('strategy', lastRes.content, `Research: ${runbook}`, 'Strategic Research & Insights');
+                            }
+                          }} disabled={isTyping}>
                             💾 Save to Knowledge Bank
                           </button>
                           <button className="finalise-btn" onClick={handleFinalise} disabled={isTyping}>

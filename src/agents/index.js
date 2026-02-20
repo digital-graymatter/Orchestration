@@ -2,13 +2,14 @@
    Loads agent configs from agent-config.js (which imports .md prompts).
    Builds system prompts and calls Claude API. */
 
-import { AGENTS, AGENT_ORDER, SUB_AGENTS } from './agent-config.js';
+import { AGENTS, AGENT_ORDER, SUB_AGENTS, SPECIALIST_REGISTRY, RUNBOOK_SPECIALIST_MAP } from './agent-config.js';
 
-export { AGENTS, AGENT_ORDER };
+export { AGENTS, AGENT_ORDER, SPECIALIST_REGISTRY, RUNBOOK_SPECIALIST_MAP };
 
 // Production (Vercel): relative path to serverless function
 // Local dev: Express proxy on port 3001
 const API_URL = import.meta.env.PROD ? '/api/chat' : 'http://localhost:3001/api/chat';
+const RESEARCH_URL = import.meta.env.PROD ? '/api/research' : 'http://localhost:3001/api/research';
 
 /**
  * Build the system prompt for an agent, including:
@@ -117,4 +118,58 @@ export async function callAgent(systemPrompt, messages, meta = null) {
 
   const data = await response.json();
   return data.content?.map((c) => c.text || '').join('\n') || 'No response received.';
+}
+
+/**
+ * Call research orchestration endpoint.
+ * Fans out to specialist agents server-side, returns compiled research.
+ *
+ * @param {Object} params
+ * @param {string} params.question - Research question
+ * @param {string} params.campaignContext - Original user prompt
+ * @param {string} params.runbook - Research runbook (determines specialists)
+ * @param {string} params.persona
+ * @param {string} params.sector
+ * @param {string[]} [params.specialistIds] - Override: specific specialists
+ * @param {Object} [params.knowledgeBankContexts] - KB entries per specialist
+ * @returns {{ specialists, compiled, contributors, failed }}
+ */
+export async function callResearch({
+  question,
+  campaignContext = '',
+  runbook = '',
+  persona = '',
+  sector = '',
+  specialistIds,
+  knowledgeBankContexts = {},
+} = {}) {
+  // Send specialist .md prompts so the server can build their system prompts
+  const specialistPrompts = {};
+  const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALIST_REGISTRY);
+  for (const id of targetIds) {
+    const spec = SPECIALIST_REGISTRY[id];
+    if (spec?.systemPrompt) specialistPrompts[id] = spec.systemPrompt;
+  }
+
+  const response = await fetch(RESEARCH_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question,
+      campaignContext,
+      runbook,
+      persona,
+      sector,
+      specialistIds,
+      specialistPrompts,
+      knowledgeBankContexts,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Research API error ${response.status}: ${errText}`);
+  }
+
+  return response.json();
 }

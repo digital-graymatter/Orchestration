@@ -5,10 +5,14 @@
   "functions": {
     "api/chat.js": {
       "includeFiles": "src/reference/**/*.docx"
+    },
+    "api/research.js": {
+      "includeFiles": "src/reference/**/*.docx"
     }
   },
   "rewrites": [
     { "source": "/api/chat", "destination": "/api/chat" },
-    { "source": "/api/perplexity", "destination": "/api/perplexity" }
+    { "source": "/api/perplexity", "destination": "/api/perplexity" },
+    { "source": "/api/research", "destination": "/api/research" }
   ]
 }

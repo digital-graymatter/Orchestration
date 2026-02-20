@@ -19,6 +19,7 @@ import { initReferenceCache } from './api/reference.js';
 import { chatRoute } from './api/chat.js';
 import { perplexityRoute } from './api/perplexity.js';
 import { referenceRoute } from './api/reference.js';
+import { researchRoute } from './api/research.js';
 
 // Load .env from project root (one level up from server/)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -46,6 +47,7 @@ app.use(express.json({ limit: '50mb' }));
 /* ── Routes ── */
 app.post('/api/chat', chatRoute);
 app.post('/api/perplexity', perplexityRoute);
+app.post('/api/research', researchRoute);
 app.get('/api/reference', referenceRoute);
 
 /* ── Startup: load reference material then listen ── */
@@ -58,6 +60,7 @@ async function start() {
     console.log('   Routes:');
     console.log('     POST /api/chat        — Claude API proxy (with reference injection)');
     console.log('     POST /api/perplexity  — Perplexity API proxy');
+    console.log('     POST /api/research   — Research orchestration (specialist fan-out)');
     console.log('     GET  /api/reference   — Query reference material');
     console.log('');
   });
