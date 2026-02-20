@@ -156,6 +156,16 @@ export async function callResearch({
     if (spec?.systemPrompt) specialistPrompts[id] = spec.systemPrompt;
   }
 
+  // Send dynamic specialist metadata so server can handle them
+  const dynamicMeta = {};
+  for (const [id, spec] of Object.entries(dynamicSpecialists)) {
+    dynamicMeta[id] = {
+      name: spec.name,
+      icon: spec.icon || '🔬',
+      perplexity: spec.perplexity || 'optional',
+    };
+  }
+
   const response = await fetch(RESEARCH_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -165,9 +175,10 @@ export async function callResearch({
       runbook,
       persona,
       sector,
-      specialistIds,
+      specialistIds: targetIds,
       specialistPrompts,
       knowledgeBankContexts,
+      dynamicSpecialistMeta: dynamicMeta,
     }),
   });
 

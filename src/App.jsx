@@ -1373,8 +1373,8 @@ Do not reproduce the research verbatim — transform it into compelling content 
                 {completedAgents.length > 0 && (
                   <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
                     {completedAgents.map((id) => (
-                      <button key={id} className="icon-btn" onClick={() => browseCompletedAgent(id)} style={{ padding: '10px 16px', borderRadius: 10, borderColor: AGENTS[id]?.colour + '44', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <AgentIcon agentId={id} size={16} color={AGENTS[id]?.colour} /> View {AGENTS[id]?.name}
+                      <button key={id} className="icon-btn" onClick={() => browseCompletedAgent(id)} style={{ padding: '10px 16px', borderRadius: 10, borderColor: (AGENTS[id]?.colour || '#888') + '44', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <AgentIcon agentId={id} size={16} color={AGENTS[id]?.colour || '#888'} /> View {AGENTS[id]?.name || id}
                       </button>
                     ))}
                   </div>

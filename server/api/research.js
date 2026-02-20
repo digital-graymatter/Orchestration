@@ -147,12 +147,19 @@ export async function researchRoute(req, res) {
       specialistIds,
       specialistPrompts = {},
       knowledgeBankContexts = {},
+      dynamicSpecialistMeta = {},
     } = req.body;
 
     if (!question) return res.status(400).json({ error: 'question is required' });
 
+    // Merge built-in specialists with any dynamic ones from the frontend
+    const allSpecialists = { ...SPECIALISTS };
+    for (const [id, meta] of Object.entries(dynamicSpecialistMeta)) {
+      allSpecialists[id] = { name: meta.name, icon: meta.icon || '🔬', perplexity: meta.perplexity || 'optional' };
+    }
+
     // Determine which specialists to activate
-    const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALISTS);
+    const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(allSpecialists);
 
     // Build research question with context
     const enrichedQuestion = `Research Question: ${question}
@@ -169,7 +176,7 @@ Provide a thorough, evidence-based response grounded in your specialist domain. 
     // Fan out to all specialists in parallel (each specialist does Perplexity then Claude)
     const results = await Promise.allSettled(
       targetIds.map(async (specId) => {
-        const spec = SPECIALISTS[specId];
+        const spec = allSpecialists[specId];
         if (!spec) throw new Error(`Unknown specialist: ${specId}`);
 
         // Step 1: Perplexity web research (if configured)

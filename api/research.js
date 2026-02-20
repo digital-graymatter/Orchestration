@@ -127,11 +127,18 @@ export default async function handler(req, res) {
     const {
       question, campaignContext = '', runbook = '', persona = '', sector = '',
       specialistIds, specialistPrompts = {}, knowledgeBankContexts = {},
+      dynamicSpecialistMeta = {},
     } = req.body;
 
     if (!question) return res.status(400).json({ error: 'question is required' });
 
-    const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(SPECIALISTS);
+    // Merge built-in specialists with dynamic ones from frontend
+    const allSpecialists = { ...SPECIALISTS };
+    for (const [id, meta] of Object.entries(dynamicSpecialistMeta)) {
+      allSpecialists[id] = { name: meta.name, icon: meta.icon || '🔬', perplexity: meta.perplexity || 'optional' };
+    }
+
+    const targetIds = specialistIds || RUNBOOK_SPECIALIST_MAP[runbook] || Object.keys(allSpecialists);
 
     const enrichedQuestion = `Research Question: ${question}\n\nCampaign Context: ${campaignContext}\nAudience: ${persona} — ${sector}\nChannel: Research | Runbook: ${runbook}\n\nProvide a thorough, evidence-based response grounded in your specialist domain. Include specific data points, examples, and actionable insights. Structure your response clearly with headings.`;
 
@@ -139,7 +146,7 @@ export default async function handler(req, res) {
 
     const results = await Promise.allSettled(
       targetIds.map(async (specId) => {
-        const spec = SPECIALISTS[specId];
+        const spec = allSpecialists[specId];
         if (!spec) throw new Error(`Unknown specialist: ${specId}`);
 
         // Step 1: Perplexity web research
