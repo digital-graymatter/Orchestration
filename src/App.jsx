@@ -101,6 +101,9 @@ export default function App() {
   const [researchContributors, setResearchContributors] = useState([]);
   const [researchFailed, setResearchFailed] = useState([]);
 
+  /* KB saved state — tracks which agents had output saved */
+  const [kbSavedAgents, setKbSavedAgents] = useState([]);
+
   /* dynamic specialists */
   const [dynamicSpecialists, setDynamicSpecialists] = useState({});
   const [specialistModalOpen, setSpecialistModalOpen] = useState(false);
@@ -250,6 +253,7 @@ export default function App() {
     setIsResearching(false);
     setResearchContributors([]);
     setResearchFailed([]);
+    setKbSavedAgents([]);
   };
 
   const toggleStage = (id) => {
@@ -503,6 +507,7 @@ export default function App() {
     // Save to KB if requested
     if (saveToKB && approvedContent) {
       await saveToKnowledgeBank(currentAgent, approvedContent, tag, category);
+      setKbSavedAgents((prev) => prev.includes(currentAgent) ? prev : [...prev, currentAgent]);
     }
 
     addAuditEntry('approve', currentAgent, `${AGENTS[currentAgent].name} output approved by human reviewer`, { confidence: conf, savedToKB: saveToKB });
@@ -882,8 +887,8 @@ Do not reproduce the research verbatim — transform it into compelling content 
           </div>
         </div>
 
-        {/* F) WORKFLOW GOVERNANCE */}
-        <div className="card">
+        {/* F) WORKFLOW GOVERNANCE — hidden for Research channel (auto-configured) */}
+        {!isResearchChannel && <div className="card">
           <div className="section-label">Workflow Governance</div>
           <div className="helper-text">Control how work progresses through the workflow, including when it runs automatically and when human review is required.</div>
 
@@ -964,7 +969,7 @@ Do not reproduce the research verbatim — transform it into compelling content 
               )}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* SPECIALIST MANAGEMENT — Research channel only */}
         {isResearchChannel && (
@@ -1012,15 +1017,25 @@ Do not reproduce the research verbatim — transform it into compelling content 
                   const agent = AGENTS[id];
                   const isCompleted = completedAgents.includes(id);
                   const isActive = id === currentAgent && !isCompleted;
+                  const isSavedToKB = kbSavedAgents.includes(id);
                   return (
                     <div key={id} style={{ display: 'flex', alignItems: 'center' }}>
-                      <div className="pipeline-dot" onClick={() => switchToAgent(id)} title={agent.name} style={{
-                        background: isCompleted ? agent.colour : isActive ? agent.colour + '20' : '#e5e7eb',
-                        color: isCompleted ? '#fff' : isActive ? agent.colour : t.textMut,
-                        border: isActive ? `2px solid ${agent.colour}` : '2px solid transparent',
-                        fontSize: isCompleted ? 14 : 15,
-                      }}>
-                        {isCompleted ? <CheckIcon size={14} color="#fff" /> : <AgentIcon agentId={id} size={16} color={isActive ? agent.colour : t.textMut} />}
+                      <div style={{ position: 'relative' }}>
+                        <div className="pipeline-dot" onClick={() => switchToAgent(id)} title={`${agent.name}${isCompleted ? ' (Approved)' : ''}${isSavedToKB ? ' (Saved to KB)' : ''}`} style={{
+                          background: isCompleted ? agent.colour : isActive ? agent.colour + '20' : '#e5e7eb',
+                          color: isCompleted ? '#fff' : isActive ? agent.colour : t.textMut,
+                          border: isActive ? `2px solid ${agent.colour}` : '2px solid transparent',
+                          fontSize: isCompleted ? 14 : 15,
+                        }}>
+                          {isCompleted ? <CheckIcon size={14} color="#fff" /> : <AgentIcon agentId={id} size={16} color={isActive ? agent.colour : t.textMut} />}
+                        </div>
+                        {isSavedToKB && (
+                          <div style={{
+                            position: 'absolute', bottom: -3, right: -3, width: 14, height: 14, borderRadius: '50%',
+                            background: ACCENT.primary, border: `2px solid ${t.convoBg || '#fff'}`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 7,
+                          }} title="Saved to Knowledge Bank">💾</div>
+                        )}
                       </div>
                       {i < activePipeline.length - 1 && (
                         <div className="pipeline-connector" style={{ background: completedAgents.includes(id) ? AGENTS[activePipeline[i + 1]]?.colour || t.border : t.border }} />
@@ -1358,10 +1373,27 @@ Do not reproduce the research verbatim — transform it into compelling content 
                 {completedAgents.length > 0 && (
                   <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
                     {completedAgents.map((id) => (
-                      <button key={id} className="icon-btn" onClick={() => browseCompletedAgent(id)} style={{ padding: '10px 16px', borderRadius: 10, borderColor: AGENTS[id].colour + '44', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <AgentIcon agentId={id} size={16} color={AGENTS[id].colour} /> View {AGENTS[id].name}
+                      <button key={id} className="icon-btn" onClick={() => browseCompletedAgent(id)} style={{ padding: '10px 16px', borderRadius: 10, borderColor: AGENTS[id]?.colour + '44', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <AgentIcon agentId={id} size={16} color={AGENTS[id]?.colour} /> View {AGENTS[id]?.name}
                       </button>
                     ))}
+                  </div>
+                )}
+                {/* Export All Approved Outputs */}
+                {Object.keys(approvedOutputs).length > 0 && (
+                  <div style={{ marginTop: 24 }}>
+                    <button className="primary-btn" onClick={() => {
+                      const sections = Object.entries(approvedOutputs).map(([agentId, content]) => {
+                        const agent = AGENTS[agentId];
+                        return `# ${agent?.name || agentId}\n\n${content}`;
+                      });
+                      const exportText = `# Campaign Outputs\n\nChannel: ${channel} | Runbook: ${runbook}\nPersona: ${persona} | Sector: ${sector}\nExported: ${new Date().toLocaleString()}\n\n---\n\n${sections.join('\n\n---\n\n')}`;
+                      navigator.clipboard.writeText(exportText);
+                      setCopiedKey('export-all');
+                      setTimeout(() => setCopiedKey(null), 2000);
+                    }} style={{ padding: '10px 20px', fontSize: 13 }}>
+                      {copiedKey === 'export-all' ? '\u2713 Copied to clipboard' : 'Export All Approved Outputs'}
+                    </button>
                   </div>
                 )}
               </div>
