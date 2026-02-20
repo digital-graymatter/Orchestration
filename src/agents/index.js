@@ -84,24 +84,30 @@ ${basePrompt}`;
 
 /**
  * Call Claude API via proxy.
- * Takes full conversation history (role/content pairs) and system prompt.
+ * Takes full conversation history (role/content pairs), system prompt,
+ * and optional _meta for server-side reference injection.
  * Returns the assistant's text response.
  */
-export async function callAgent(systemPrompt, messages) {
+export async function callAgent(systemPrompt, messages, meta = null) {
   // Filter to only user/assistant messages for the API
   const apiMessages = messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({ role: m.role, content: m.content }));
 
+  const body = {
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 8000,
+    system: systemPrompt,
+    messages: apiMessages,
+  };
+
+  // Pass _meta so backend can inject reference material server-side
+  if (meta) body._meta = meta;
+
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
-      system: systemPrompt,
-      messages: apiMessages,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {

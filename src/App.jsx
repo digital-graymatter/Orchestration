@@ -240,7 +240,11 @@ export default function App() {
         approvedOutputs,
         ...opts,
       });
-      const reply = await callAgent(systemPrompt, messagesForApi);
+      const reply = await callAgent(systemPrompt, messagesForApi, {
+        agentId,
+        channel,
+        campaignContext: prompt,
+      });
       const conf = extractConfidence(reply);
       addAuditEntry('output', agentId, `${AGENTS[agentId].name} produced output (live API)`, { source: 'api', confidence: conf, outputLength: reply.length });
       setConversations((prev) => ({
